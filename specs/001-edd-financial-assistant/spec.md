@@ -8,6 +8,16 @@
 
 **Input**: User description: "Build a simple financial assistant using LangGraph and local qwen/qwen3.6-35b-a3b (served via LMStudio at http://localhost:1234/v1). Tooling: FastMCP server wrapping Yahoo Finance (yfinance) for stock prices, news and financial statement analysis. Dataset: 10-case golden dataset based on a single request for financial analysis with expected response structure, facts, and model/tool call sequence expectations. Evaluation & Alignment: baseline traces → uncalibrated Gemini judge (ToolCallEfficiency, ToolCallCorrectness, Groundedness) → 5 expert overrides on misclassified redundant tool calls/reasoning thrash → MemAlign judge.align() → re-evaluate baseline under separate dataset experiment tags; allow looping for more feedback."
 
+## Clarifications
+
+### Session 2026-08-09
+
+- Q: How should golden-case expected facts relate to live market data? → A: Live validation — at eval time, re-fetch market data and treat current tool output as ground truth
+- Q: How strict should golden-case expected tool/model call sequences be for pass/fail? → A: Required tool set only (order flexible; missing required tool fails)
+- Q: Which judge(s) should the first MemAlign round calibrate? → A: Operator chooses per round; no fixed default
+- Q: What is the primary operator interface for assistant, eval, overrides, and align? → A: Scripts for agent + eval; MLflow UI for review/annotate
+- Q: What shape must the assistant’s structured analysis response follow? → A: Fixed Markdown section headings (content free text under each)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Request Financial Analysis (Priority: P1)
@@ -22,17 +32,19 @@ can review.
 there is nothing meaningful to evaluate or align.
 
 **Independent Test**: Submit one analysis request for a known ticker and
-confirm the response includes tool-backed price, news, and statement-related
-content in the expected structure.
+confirm the response includes the required Markdown sections with tool-backed
+price, news, and statement-related content, and that required tools for that
+request were invoked (order may vary).
 
 **Acceptance Scenarios**:
 
 1. **Given** the assistant and market-data tools are available, **When** the
    analyst submits a financial analysis request for a ticker, **Then** the
-   assistant returns a structured analysis that cites tool-derived facts
-   (price, news, and/or statements as relevant).
+   assistant returns Markdown with the required section headings and cites
+   tool-derived facts (price, news, and/or statements as relevant).
 2. **Given** a request that needs multiple data types, **When** the assistant
-   runs, **Then** it uses market-data tools rather than inventing figures.
+   runs, **Then** it invokes the required market-data tools for that request
+   (call order may vary) rather than inventing figures.
 3. **Given** market data is temporarily unavailable for a ticker, **When** the
    assistant cannot complete a tool call, **Then** it reports the limitation
    clearly instead of fabricating numbers.
@@ -41,11 +53,11 @@ content in the expected structure.
 
 ### User Story 2 - Run Golden Baseline Evaluation (Priority: P2)
 
-An evaluation operator runs the fixed 10-case golden analysis suite against
-the assistant, captures full execution records for each case, and scores them
-with an uncalibrated Gemini qualitative judge on ToolCallEfficiency,
-ToolCallCorrectness, and Groundedness. Results are stored so baseline quality
-is visible and comparable later.
+An evaluation operator runs the fixed 10-case golden analysis suite via
+scripts against the assistant, captures full execution records for each case,
+and scores them with an uncalibrated Gemini qualitative judge on
+ToolCallEfficiency, ToolCallCorrectness, and Groundedness. Results are stored
+so baseline quality is visible and comparable later in the MLflow UI.
 
 **Why this priority**: Establishes the measurable baseline required before
 judge alignment and before-vs-after comparison.
@@ -70,30 +82,33 @@ labeled as the uncalibrated/baseline evaluation.
 
 ### User Story 3 - Align Judge With Expert Feedback and Re-Score (Priority: P3)
 
-An expert reviews baseline traces where the uncalibrated judge mislabeled
-redundant tool calls or reasoning thrash, records five human override
-annotations with rationale, aligns the judge from that feedback, and
-re-evaluates the same baseline traces with the aligned judge. Both evaluation
-runs remain distinguishable for side-by-side comparison. The operator may
-repeat feedback → align → re-evaluate as needed.
+An expert reviews baseline traces in the MLflow UI where uncalibrated judges
+mislabeled behavior (for example redundant tool calls or reasoning thrash),
+records five human override annotations with rationale targeting the judge(s)
+the operator selected for this round, then runs alignment (via script once
+annotations exist) and re-evaluates the same baseline traces with the aligned
+judge(s). Both evaluation runs remain distinguishable for side-by-side
+comparison. The operator may repeat feedback → align → re-evaluate and may
+choose different judge(s) each round.
 
 **Why this priority**: Demonstrates Evaluation-Driven Development value:
 calibrating judges to expert judgment and proving improvement on the same
 cases.
 
-**Independent Test**: Apply five expert overrides on known misclassifications,
-run alignment, re-score the same baseline traces, and confirm a separately
-tagged aligned evaluation exists alongside the baseline evaluation.
+**Independent Test**: Apply five expert overrides on known misclassifications
+for the operator-selected judge(s), run alignment for those judge(s),
+re-score the same baseline traces, and confirm a separately tagged aligned
+evaluation exists alongside the baseline evaluation.
 
 **Acceptance Scenarios**:
 
-1. **Given** baseline judge scores that incorrectly flag redundant tool calls
-   or reasoning thrash, **When** an expert adds five human overrides with
-   rationale on those traces, **Then** the overrides are stored as human
-   assessments tied to the matching judge names.
-2. **Given** those human assessments, **When** alignment runs, **Then** an
-   aligned judge is produced and registered for reuse, capturing semantic
-   rules and episodic exemplars from the feedback.
+1. **Given** baseline judge scores the operator disputes, **When** an expert
+   adds five human overrides with rationale naming the target judge(s) for
+   this round, **Then** the overrides are stored as human assessments tied to
+   those judge names.
+2. **Given** those human assessments and an operator-selected judge set,
+   **When** alignment runs, **Then** each selected judge is aligned and
+   registered for reuse, capturing semantic rules and episodic exemplars.
 3. **Given** an aligned judge, **When** the same baseline traces are
    re-evaluated, **Then** scores are logged under a distinct evaluation tag
    from the uncalibrated run (same dataset version) for comparison.
@@ -105,7 +120,12 @@ tagged aligned evaluation exists alongside the baseline evaluation.
 
 ### Edge Cases
 
-- Market-data tool returns empty, delayed, or partial results for a ticker.
+- Market-data tool returns empty, delayed, or partial results for a ticker
+  (Groundedness has no reliable live ground truth until tools succeed).
+- Live market values change between agent run and judge scoring (Groundedness
+  MUST primarily compare the assistant’s claims to tool outputs on that same
+  execution trace; optional live re-fetch must be documented on the eval run
+  if used as supplemental context).
 - Requested ticker is invalid or delisted.
 - Local assistant model endpoint is unreachable.
 - Judge service is unavailable or returns malformed assessments.
@@ -114,6 +134,10 @@ tagged aligned evaluation exists alongside the baseline evaluation.
   overrides are obtained).
 - Human override conflicts with an earlier override (latest accepted rationale
   wins for the next alignment round; prior rounds remain auditable).
+- Assistant omits a required Markdown section heading (structure checklist
+  failure) even if content appears elsewhere in free prose.
+- Assistant omits a required tool for a golden case (hard suite failure) even
+  if the narrative answer looks plausible.
 - Alignment attempted with insufficient or same-sign-only labels (system
   warns and does not claim a successful alignment).
 
@@ -123,7 +147,9 @@ tagged aligned evaluation exists alongside the baseline evaluation.
 
 - **FR-001**: System MUST provide a financial assistant that accepts a
   natural-language financial analysis request and returns a structured
-  analysis response.
+  analysis as Markdown with a fixed set of section headings (content under
+  each heading may be free text). Required sections MUST include at least:
+  Price context, News, Financial statements, and Risks/limitations.
 - **FR-002**: System MUST obtain stock prices, news, and financial-statement
   information through a market-data tool service (Yahoo Finance–backed), not
   by inventing market facts.
@@ -132,9 +158,13 @@ tagged aligned evaluation exists alongside the baseline evaluation.
 - **FR-004**: System MUST define a golden evaluation suite of exactly 10 cases
   derived from one canonical financial-analysis request pattern, varying
   tickers/scenarios as needed.
-- **FR-005**: Each golden case MUST include: the request, expected response
-  structure, expected factual anchors, and expected model/tool-call sequence
-  expectations.
+- **FR-005**: Each golden case MUST include: the request, expected Markdown
+  section checklist (required headings present), a required tool set
+  (unordered; missing a required tool fails), and any structural/factual
+  check templates. Call order is not asserted. Expected market facts for
+  Groundedness MUST be derived at evaluation time from live tool outputs
+  (re-fetched market data treated as ground truth), not from frozen
+  historical snapshots.
 - **FR-006**: System MUST run a baseline execution of all golden cases and
   persist full execution traces for each case.
 - **FR-007**: System MUST evaluate baseline traces with an uncalibrated Gemini
@@ -142,10 +172,14 @@ tagged aligned evaluation exists alongside the baseline evaluation.
   ToolCallEfficiency, ToolCallCorrectness, and Groundedness.
 - **FR-008**: System MUST allow experts to attach at least five human override
   annotations (with rationale) on traces where the uncalibrated judge
-  misclassified redundant tool calls or reasoning thrash.
-- **FR-009**: System MUST align the affected judge(s) from those human
-  assessments using MemAlign-style alignment so semantic rules and episodic
-  exemplars are retained, then register the aligned judge for reuse.
+  misclassified behavior (initially expected to include redundant tool calls
+  or reasoning thrash). Each override MUST name the target judge/scorer.
+- **FR-009**: System MUST align the operator-selected judge(s) for that
+  alignment round from matching human assessments using MemAlign-style
+  alignment so semantic rules and episodic exemplars are retained, then
+  register the aligned judge(s) for reuse. There is no fixed default set of
+  judges per round—the operator chooses which of ToolCallEfficiency,
+  ToolCallCorrectness, and/or Groundedness to calibrate.
 - **FR-010**: System MUST re-evaluate the same baseline traces with the aligned
   judge and log uncalibrated vs aligned evaluation runs under separate
   dataset/experiment tags for comparison.
@@ -154,6 +188,12 @@ tagged aligned evaluation exists alongside the baseline evaluation.
   evidence.
 - **FR-012**: When tools or the local model are unavailable, the assistant MUST
   fail gracefully with an actionable error rather than fabricating analysis.
+- **FR-013**: System MUST provide scripted entrypoints to run the assistant
+  (single request and golden-suite execution) and to run uncalibrated/aligned
+  evaluations that persist traces and scores. Expert review and human override
+  annotation MUST be performed in the MLflow UI (not a separate custom annotate
+  CLI as the primary path). Alignment MAY be triggered by a script after UI
+  annotations exist.
 
 ### Evaluation-Driven Development Requirements *(mandatory for agent features)*
 
@@ -190,12 +230,14 @@ Per project constitution:
 
 - **Analysis Request**: Natural-language financial analysis prompt and ticker
   or subject company context.
-- **Assistant Response**: Structured analysis output intended to match the
-  golden expected response shape.
-- **Market Data Observation**: Tool-returned prices, news items, and statement
-  figures referenced by the assistant.
-- **Golden Case**: One suite item with request, expected structure, factual
-  anchors, and expected tool/model call sequence.
+- **Assistant Response**: Markdown analysis with required section headings
+  (Price context, News, Financial statements, Risks/limitations); body text
+  under each heading is free-form.
+- **Market Data Observation**: Live tool-returned prices, news items, and
+  statement figures; used as ground truth for Groundedness at evaluation time.
+- **Golden Case**: One suite item with request, Markdown section checklist,
+  required tool set (unordered), and check templates; market-fact ground truth
+  is resolved live from tool outputs at evaluation time.
 - **Execution Trace**: Durable record of an assistant run including model and
   tool calls.
 - **Judge Assessment**: Qualitative score and rationale for a named metric on a
@@ -211,9 +253,9 @@ Per project constitution:
 
 ### Measurable Outcomes
 
-- **SC-001**: An analyst can obtain a structured, tool-backed financial
-  analysis for a supported public ticker in a single request without manual
-  data lookup.
+- **SC-001**: An analyst can obtain a Markdown financial analysis with the
+  required sections, tool-backed for a supported public ticker, in a single
+  request without manual data lookup.
 - **SC-002**: 100% of the 10 golden cases complete baseline execution with
   durable traces suitable for later comparison.
 - **SC-003**: 100% of baseline traces receive all three qualitative scores
@@ -221,12 +263,13 @@ Per project constitution:
 - **SC-004**: After five expert overrides and alignment, the aligned evaluation
   is available side-by-side with the uncalibrated evaluation on the same 10
   cases, with clear before/after labeling.
-- **SC-005**: Operators can complete at least one full feedback → align →
-  re-evaluate cycle in a single working session, and can start a second cycle
-  without losing the original baseline results.
-- **SC-006**: In a review of the five overridden cases, aligned judge outcomes
-  agree with the expert overrides on at least 4 of 5 cases after the first
-  alignment round.
+- **SC-005**: Operators can complete at least one full cycle—scripted baseline
+  eval, five MLflow UI overrides, align, scripted re-evaluate—in a single
+  working session, and can start a second cycle without losing the original
+  baseline results.
+- **SC-006**: For the judge(s) aligned in the first round, aligned outcomes
+  agree with the expert overrides on at least 4 of 5 overridden assessments
+  after that alignment round.
 
 ### Evaluation Outcomes *(mandatory for agent features)*
 
@@ -258,13 +301,23 @@ Per project constitution:
   project SQLite MLflow store.
 - The “single request” pattern is one canonical analysis prompt template;
   the 10 cases vary company/ticker and lightly vary focus while sharing the
-  same expected response structure schema.
+  same required Markdown section headings.
+- Assistant responses use fixed Markdown headings (Price context, News,
+  Financial statements, Risks/limitations); section bodies are free text.
+- Golden-suite market facts are validated live: at eval time, market data is
+  re-fetched (or taken from the run’s tool outputs) and treated as ground
+  truth for Groundedness; cases do not ship frozen price/statement snapshots
+  as authoritative expected facts.
+- Golden-suite tool expectations are a required unordered tool set per case;
+  extra calls may still be scored by ToolCallEfficiency, but reordering alone
+  is not a hard suite failure.
 - ToolCallCorrectness covers appropriate tool choice and argument use;
   ToolCallEfficiency covers redundant calls and reasoning thrash;
   Groundedness covers faithfulness to tool-returned facts (fulfills
   constitution groundedness / numerical consistency intent).
-- Initial alignment uses five expert overrides focused on efficiency/thrash
-  misclassifications; additional rounds may add labels on other metrics.
+- Initial demo guidance expects overrides often to target ToolCallEfficiency
+  (redundant calls / thrash), but the operator chooses which judge(s) to
+  align each round; no fixed default set.
 - MemAlign `reflection_lm` will be pinned to a Gemini-family model;
   `embedding_model` will be explicitly pinned at implementation (no silent
   OpenAI default) per constitution.
@@ -273,3 +326,7 @@ Per project constitution:
 - “Separate dataset experiment tags” means distinct evaluation-run tags /
   metadata separating uncalibrated vs aligned scoring while sharing the same
   `dataset_version`.
+- Primary UX split: scripts run the agent and evaluations; the MLflow UI is
+  the primary surface for reviewing traces and attaching human override
+  annotations; alignment is invoked after annotations exist (typically by
+  script).
