@@ -7,10 +7,8 @@
 1. Python >=3.13, project deps installed (`uv sync`)
 2. [LMStudio](https://lmstudio.ai) serving `qwen/qwen3.6-35b-a3b` at
    `http://localhost:1234/v1`
-3. `GEMINI_API_KEY` set for judge + MemAlign reflection
-4. Network access for Yahoo Finance (`yfinance`)
-5. Optional `OPENAI_API_KEY` when MemAlign embedding pin is
-   `openai:/text-embedding-3-small` (see `config.py`)
+3. `GEMINI_API_KEY` in `.env` (judges, MemAlign reflection, and default
+   `gemini:/text-embedding-004` embeddings) — start from `cp .env.example .env`
 
 ## Run flow
 

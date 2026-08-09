@@ -9,6 +9,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
 import mlflow
 
 # --- Tracking ---
@@ -20,6 +24,10 @@ LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
 AGENT_MODEL = os.getenv("AGENT_MODEL", "qwen/qwen3.6-35b-a3b")
 LMSTUDIO_API_KEY = os.getenv("LMSTUDIO_API_KEY", "lm-studio")
 
+# --- API keys (also read by MLflow / provider SDKs from the environment) ---
+# GEMINI_API_KEY — required for gemini:/ judge, reflection, and embedding models
+# OPENAI_API_KEY — only if you override MEMALIGN_EMBEDDING_MODEL to an openai:/ URI
+
 # --- Judges (Gemini via MLflow provider URI) ---
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini:/gemini-2.5-pro")
 
@@ -28,10 +36,10 @@ JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini:/gemini-2.5-pro")
 MEMALIGN_REFLECTION_LM = os.getenv(
     "MEMALIGN_REFLECTION_LM", "gemini:/gemini-2.5-flash"
 )
-# embedding_model: explicitly pinned for episodic memory (Complexity Tracking:
-# OpenAI embedding URI used when Gemini embeddings are unsupported by MemAlign)
+# embedding_model: Gemini AI Studio embeddings via GEMINI_API_KEY
+# (LiteLLM: gemini/text-embedding-004). Alternative: gemini:/gemini-embedding-001
 MEMALIGN_EMBEDDING_MODEL = os.getenv(
-    "MEMALIGN_EMBEDDING_MODEL", "openai:/text-embedding-3-small"
+    "MEMALIGN_EMBEDDING_MODEL", "gemini:/text-embedding-004"
 )
 
 # --- Version tags ---
