@@ -70,6 +70,28 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T008 Configure error handling and logging infrastructure
 - [ ] T009 Setup environment configuration management
 
+EDD foundational tasks (REQUIRED when the feature involves agents/tools/evals —
+align with constitution principles I–VII):
+
+- [ ] T00A Configure `mlflow.set_tracking_uri("sqlite:///mlflow.db")`, named
+      experiment, `mlflow.langchain.autolog()`, and verify typed AGENT/TOOL/LLM
+      spans (+ UI via `--backend-store-uri sqlite:///mlflow.db`)
+- [ ] T00B [P] Define `make_judge` scorers (`tool_usage_efficiency`,
+      `financial_reasoning`, groundedness/numerical consistency) with
+      `gemini:/gemini-2.5-pro` and wire `mlflow.genai.evaluate`
+- [ ] T00C [P] Scaffold MemAlign loop: human assessments → `align` → `register`
+      (+ `unalign`); pin `reflection_lm` and `embedding_model`
+- [ ] T00D Create versioned golden evaluation dataset with expectations where
+      checkable; persist traces for same-dataset side-by-side comparison
+- [ ] T00E Define process to bump `dataset_version` from failures and accepted
+      human feedback (`AssessmentSourceType.HUMAN`) on traces
+- [ ] T00F [P] Add run tags: `agent_version`, `judge_version`, `dataset_version`,
+      `alignment_round`
+- [ ] T00G Establish frozen-baseline regression gate (fail on regressions vs
+      baseline on the same dataset)
+- [ ] T00H Document which payloads may leave the machine to Gemini and minimize
+      sensitive data in judge prompts
+
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
 ---
@@ -157,6 +179,13 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
+- [ ] TXXX [P] Re-run golden dataset + confirm same-dataset MLflow side-by-side traces
+- [ ] TXXX Compare candidate vs frozen baseline; resolve any regressions
+- [ ] TXXX Re-run MemAlign when warranted; `register` aligned judge; bump
+      `judge_version` / `alignment_round`
+- [ ] TXXX Expand golden suite (`dataset_version`) from open failure/human-feedback items
+- [ ] TXXX Verify run tags (`agent_version`, `judge_version`, `dataset_version`,
+      `alignment_round`) on final eval evidence
 
 ---
 

@@ -40,7 +40,31 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+Per `.specify/memory/constitution.md` (MLflow EDD Financial Agent v1.1+):
+
+- **I. Persistent Agent Tracing**: `mlflow.set_tracking_uri("sqlite:///mlflow.db")`,
+  named experiment, `mlflow.langchain.autolog()`, typed spans (`AGENT`/`TOOL`/`LLM`),
+  judge results as trace assessments; UI via
+  `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
+- **II. Model-as-a-Judge (Gemini)**: Qualitative scorers via `make_judge` with
+  `gemini:/gemini-2.5-pro` (or equiv. Gemini URI) and `mlflow.genai.evaluate`;
+  named scorers include tool efficiency, financial reasoning, and
+  groundedness/numerical consistency; no ad-hoc/alternate qualitative judges.
+- **III. Judge Alignment (MemAlign)**: Human assessments (matching judge name +
+  rationale) → `MemAlignOptimizer` → `align` → `register`; `unalign` when needed;
+  pin `reflection_lm` + `embedding_model` (no silent OpenAI embedding default).
+- **IV. Golden Suite**: Versioned MLflow eval dataset with expectations; same
+  `dataset_version` for side-by-side; grow suite from failures + human feedback.
+- **V. Regression Gates**: Compare candidate to frozen baseline on same dataset;
+  fail on regressions before merge/done.
+- **VI. Taxonomy & Roles**: Tag `agent_version`, `judge_version`,
+  `dataset_version`, `alignment_round`; keep agent/judge/reflection/embedding
+  roles separated.
+- **VII. Privacy & Cost Hygiene**: Document what data may leave the machine to
+  Gemini; minimize sensitive payloads; prefer cheaper Gemini for reflection_lm
+  when quality allows (no rate-limit policy required).
+- **Stack & workflow**: Stay within Technology Stack Constraints and the EDD
+  Workflow; justify deviations in Complexity Tracking.
 
 ## Project Structure
 
