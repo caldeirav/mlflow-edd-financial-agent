@@ -4,25 +4,20 @@
 
 ## Prerequisites
 
-1. Python >=3.13, project deps installed (`uv sync` / `pip install -e .`)
+1. Python >=3.13, project deps installed (`uv sync`)
 2. [LMStudio](https://lmstudio.ai) serving `qwen/qwen3.6-35b-a3b` at
    `http://localhost:1234/v1`
 3. `GEMINI_API_KEY` set for judge + MemAlign reflection
 4. Network access for Yahoo Finance (`yfinance`)
-
-## Install extras (when implementing)
-
-```bash
-uv add langchain-mcp-adapters dspy jinja2 tqdm
-# add fastmcp if not using mcp.server.fastmcp
-```
+5. Optional `OPENAI_API_KEY` when MemAlign embedding pin is
+   `openai:/text-embedding-3-small` (see `config.py`)
 
 ## Run flow
 
 ### 1. Single analysis (P1)
 
 ```bash
-python main.py run-agent --ticker AAPL
+uv run python main.py run-agent --ticker AAPL
 ```
 
 Expect Markdown with sections: Price context, News, Financial statements,
@@ -31,7 +26,7 @@ Risks/limitations.
 ### 2. Baseline golden eval (P2)
 
 ```bash
-python main.py run-baseline-eval --dataset-version v1
+uv run python main.py run-baseline-eval --dataset-version v1
 ```
 
 Creates/uses 10-case dataset; writes traces + uncalibrated Gemini scores to
@@ -49,13 +44,13 @@ Open baseline traces; add ≥5 human assessments on the judge(s) you will align
 ### 3b. Demo seed (optional)
 
 ```bash
-python main.py seed-feedback --file data/expert_feedback_seed.json
+uv run python main.py seed-feedback --file data/expert_feedback_seed.json
 ```
 
 ### 4. Align + re-evaluate
 
 ```bash
-python main.py align-and-reeval --judges ToolCallEfficiency --alignment-round 1
+uv run python main.py align-and-reeval --judges ToolCallEfficiency --alignment-round 1
 ```
 
 Compare `eval_phase=uncalibrated` vs `eval_phase=aligned` in the UI (same
@@ -70,6 +65,12 @@ Compare `eval_phase=uncalibrated` vs `eval_phase=aligned` in the UI (same
 | `golden_dataset.py` | Versioned MLflow eval dataset |
 | `eval_pipeline.py` | Judges, MemAlign, evaluate |
 | `main.py` | Orchestration |
+| `config.py` | Pins and tags |
+
+## Growing the suite
+
+Bump `DATASET_VERSION` / cases in `golden_dataset.py` when feedback identifies
+gaps; keep prior versions used as frozen baselines intact.
 
 ## Privacy note
 

@@ -1,0 +1,37 @@
+[
+  {
+    "case_id": "case-01",
+    "ticker": "AAPL",
+    "judge_name": "ToolCallEfficiency",
+    "value": "efficient",
+    "rationale": "Repeated price lookups were unnecessary; a single get_stock_price call is enough for this analysis request."
+  },
+  {
+    "case_id": "case-02",
+    "ticker": "MSFT",
+    "judge_name": "ToolCallEfficiency",
+    "value": "efficient",
+    "rationale": "Calling news twice with the same ticker is thrash; one get_financial_news call suffices."
+  },
+  {
+    "case_id": "case-03",
+    "ticker": "GOOGL",
+    "judge_name": "ToolCallEfficiency",
+    "value": "efficient",
+    "rationale": "Extra statement_type probes without using results are redundant tool usage."
+  },
+  {
+    "case_id": "case-04",
+    "ticker": "AMZN",
+    "judge_name": "ToolCallEfficiency",
+    "value": "efficient",
+    "rationale": "Reasoning loops that re-fetch price after already having a quote should not be marked inefficient if the first call failed; otherwise treat as thrash."
+  },
+  {
+    "case_id": "case-05",
+    "ticker": "NVDA",
+    "judge_name": "ToolCallEfficiency",
+    "value": "efficient",
+    "rationale": "Using all three required tools once each is efficient; do not penalize complete coverage."
+  }
+]
