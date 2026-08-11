@@ -11,25 +11,39 @@ from pathlib import Path
 
 import agent
 import config
+import console_trace as ct
 import eval_pipeline
-import golden_dataset
 
 
 def cmd_run_agent(args: argparse.Namespace) -> None:
+    if args.quiet:
+        ct.set_enabled(False)
     config.init_mlflow()
     ticker = args.ticker or "AAPL"
     question = args.question or config.build_analysis_question(ticker, args.focus)
-    print(f"Running agent for ticker={ticker} …")
-    print(f"Tracking: {config.TRACKING_URI} experiment={config.EXPERIMENT_NAME}")
+    if not ct.enabled():
+        print(f"Running agent for ticker={ticker} …")
+        print(f"Tracking: {config.TRACKING_URI} experiment={config.EXPERIMENT_NAME}")
+    else:
+        ct.kv("tracking", config.TRACKING_URI)
+        ct.kv("experiment", config.EXPERIMENT_NAME)
     output = agent.run_analysis(question)
-    print(output)
+    if not ct.enabled():
+        print(output.get("report", output))
+        tools = output.get("tools_called") or []
+        if tools:
+            print(f"\n[tools_called: {', '.join(tools)}]")
 
 
 def cmd_run_baseline_eval(args: argparse.Namespace) -> None:
+    if args.quiet:
+        ct.set_enabled(False)
     version = args.dataset_version or config.DATASET_VERSION
-    print(f"Baseline eval dataset_version={version} …")
+    if not ct.enabled():
+        print(f"Baseline eval dataset_version={version} …")
     results = eval_pipeline.run_baseline_eval(dataset_version=version)
-    print(results)
+    if not ct.enabled():
+        print(results)
     print(eval_pipeline.compare_eval_phases(version))
 
 
@@ -40,39 +54,60 @@ def cmd_seed_feedback(args: argparse.Namespace) -> None:
 
 
 def cmd_align_and_reeval(args: argparse.Namespace) -> None:
+    if args.quiet:
+        ct.set_enabled(False)
     judges = args.judges or ["ToolCallEfficiency"]
     round_n = args.alignment_round
     version = args.dataset_version or config.DATASET_VERSION
-    print(f"Aligning judges={judges} round={round_n} …")
+    if not ct.enabled():
+        print(f"Aligning judges={judges} round={round_n} …")
+    else:
+        ct.banner("ALIGN", judges=", ".join(judges), round=round_n)
     aligned = eval_pipeline.align_judges(judges, alignment_round=round_n)
     print(f"Aligned: {list(aligned)}")
-    print("Re-evaluating with aligned judges …")
+    if not ct.enabled():
+        print("Re-evaluating with aligned judges …")
     results = eval_pipeline.run_aligned_eval(
         aligned, dataset_version=version, alignment_round=round_n
     )
-    print(results)
+    if not ct.enabled():
+        print(results)
     print(eval_pipeline.compare_eval_phases(version))
 
 
 def build_parser() -> argparse.ArgumentParser:
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Disable pretty stdio execution traces (or set EDD_QUIET=1)",
+    )
     parser = argparse.ArgumentParser(
-        description="MLflow EDD financial assistant orchestration"
+        description="MLflow EDD financial assistant orchestration",
+        parents=[parent],
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_agent = sub.add_parser("run-agent", help="Single financial analysis request")
+    p_agent = sub.add_parser(
+        "run-agent", help="Single financial analysis request", parents=[parent]
+    )
     p_agent.add_argument("--ticker", default="AAPL")
     p_agent.add_argument("--question", default=None)
     p_agent.add_argument("--focus", default=None)
     p_agent.set_defaults(func=cmd_run_agent)
 
-    p_base = sub.add_parser("run-baseline-eval", help="10-case uncalibrated golden eval")
+    p_base = sub.add_parser(
+        "run-baseline-eval",
+        help="10-case uncalibrated golden eval",
+        parents=[parent],
+    )
     p_base.add_argument("--dataset-version", default=config.DATASET_VERSION)
     p_base.set_defaults(func=cmd_run_baseline_eval)
 
     p_seed = sub.add_parser(
         "seed-feedback",
         help="Attach demo HUMAN overrides (mimics MLflow UI annotations)",
+        parents=[parent],
     )
     p_seed.add_argument(
         "--file",
@@ -83,6 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_align = sub.add_parser(
         "align-and-reeval",
         help="MemAlign selected judges and re-evaluate (keeps baseline)",
+        parents=[parent],
     )
     p_align.add_argument(
         "--judges",
