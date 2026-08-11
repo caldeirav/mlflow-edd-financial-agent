@@ -422,6 +422,70 @@ def _traces_with_human_feedback(judge_name: str) -> list[Any]:
     return selected
 
 
+_EMPTY_REPORT_PLACEHOLDER = (
+    "(empty report — no Markdown analysis was produced)"
+)
+
+
+def _prepare_trace_for_memalign(tr: Any) -> Any:
+    """Ensure MemAlign can extract a non-empty ``outputs`` string from the trace.
+
+    MLflow MemAlign drops traces when ``extract_response_from_trace`` is falsy
+    (empty assistant content). Empty agent reports (AMZN/V) then hard-fail
+    alignment even though HUMAN Groundedness feedback is present. Inject a
+    placeholder into the root span outputs so empty→ungrounded can be learned.
+    """
+    from mlflow.entities.span import Span
+    from mlflow.entities.trace import Trace
+    from mlflow.entities.trace_data import TraceData
+    from mlflow.genai.utils.trace_utils import extract_response_from_trace
+
+    if extract_response_from_trace(tr):
+        return tr
+
+    new_spans: list[Any] = []
+    patched = False
+    for sp in getattr(tr.data, "spans", None) or []:
+        d = sp.to_dict()
+        is_root = getattr(sp, "parent_id", None) is None
+        if is_root or getattr(sp, "name", None) == "LangGraph":
+            attrs = d.get("attributes") or {}
+            raw_outs = attrs.get("mlflow.spanOutputs")
+            was_str = isinstance(raw_outs, str)
+            try:
+                outs_obj = json.loads(raw_outs) if was_str else raw_outs
+            except Exception:
+                outs_obj = None
+            if isinstance(outs_obj, dict) and isinstance(outs_obj.get("messages"), list):
+                msgs = outs_obj["messages"]
+                for i in range(len(msgs) - 1, -1, -1):
+                    content = msgs[i].get("content") if isinstance(msgs[i], dict) else None
+                    if content == "" or content is None:
+                        msgs[i]["content"] = _EMPTY_REPORT_PLACEHOLDER
+                        patched = True
+                        break
+                if not patched and msgs and isinstance(msgs[-1], dict):
+                    msgs[-1]["content"] = _EMPTY_REPORT_PLACEHOLDER
+                    patched = True
+                attrs["mlflow.spanOutputs"] = (
+                    json.dumps(outs_obj) if was_str else outs_obj
+                )
+                d["attributes"] = attrs
+        new_spans.append(Span.from_dict(d))
+
+    if not patched:
+        return tr
+
+    return Trace(
+        info=tr.info,
+        data=TraceData(
+            spans=new_spans,
+            request=getattr(tr.data, "request", None),
+            response=getattr(tr.data, "response", None),
+        ),
+    )
+
+
 def align_judges(
     judge_names: list[str],
     alignment_round: int = 1,
@@ -444,8 +508,18 @@ def align_judges(
                 f"No HUMAN assessments found for judge '{name}'. "
                 "Annotate in MLflow UI or run seed-feedback first."
             )
+        prepared: list[Any] = []
+        for tr in feedback_traces:
+            fixed = _prepare_trace_for_memalign(tr)
+            if fixed is not tr:
+                ct.kv(
+                    "memalign_empty_output_patch",
+                    getattr(tr.info, "trace_id", "?"),
+                )
+            prepared.append(fixed)
+        ct.kv(f"align_{name}_human_traces", len(prepared))
         base = judges[name]
-        new_judge = base.align(traces=feedback_traces, optimizer=optimizer)
+        new_judge = base.align(traces=prepared, optimizer=optimizer)
         try:
             new_judge.register(experiment_id=experiment_id)
         except Exception:

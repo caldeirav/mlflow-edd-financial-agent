@@ -37,9 +37,9 @@ MEMALIGN_REFLECTION_LM = os.getenv(
     "MEMALIGN_REFLECTION_LM", "gemini:/gemini-2.5-flash"
 )
 # embedding_model: Gemini AI Studio embeddings via GEMINI_API_KEY
-# (LiteLLM: gemini/text-embedding-004). Alternative: gemini:/gemini-embedding-001
+# (LiteLLM: gemini/gemini-embedding-001). text-embedding-004 is retired on v1beta.
 MEMALIGN_EMBEDDING_MODEL = os.getenv(
-    "MEMALIGN_EMBEDDING_MODEL", "gemini:/text-embedding-004"
+    "MEMALIGN_EMBEDDING_MODEL", "gemini:/gemini-embedding-001"
 )
 
 # --- Version tags ---

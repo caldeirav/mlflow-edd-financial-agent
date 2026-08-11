@@ -18,7 +18,7 @@ Feature docs: [`specs/001-edd-financial-assistant/quickstart.md`](specs/001-edd-
 - For any other shell: `set -a && source .env && set +a`
 - [LMStudio](https://lmstudio.ai) serving `qwen/qwen3.6-35b-a3b` at `http://localhost:1234/v1`
 - `GEMINI_API_KEY` in `.env` for judges / MemAlign reflection **and** embeddings
-  (`MEMALIGN_EMBEDDING_MODEL=gemini:/text-embedding-004` by default)
+  (`MEMALIGN_EMBEDDING_MODEL=gemini:/gemini-embedding-001` by default)
 - `OPENAI_API_KEY` only if you override the embedding pin to an `openai:/` URI
 
 ## Commands
