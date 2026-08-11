@@ -1,7 +1,7 @@
 """End-to-end orchestration for the EDD financial assistant demo.
 
 Commands:
-  run-agent | run-baseline-eval | seed-feedback | align-and-reeval
+  run-agent | run-baseline-eval | seed-feedback | rescore-eval | align-and-reeval
 """
 
 from __future__ import annotations
@@ -51,6 +51,26 @@ def cmd_seed_feedback(args: argparse.Namespace) -> None:
     path = Path(args.file)
     n = eval_pipeline.seed_human_feedback(path)
     print(f"Applied {n} human override assessment(s) from {path}")
+
+
+def cmd_rescore_eval(args: argparse.Namespace) -> None:
+    if args.quiet:
+        ct.set_enabled(False)
+    version = args.dataset_version or config.DATASET_VERSION
+    judges = args.judges or [
+        "Groundedness",
+        "ToolCallCorrectness",
+        "ToolCallEfficiency",
+    ]
+    results = eval_pipeline.rescore_from_run(
+        args.run_id,
+        dataset_version=version,
+        judge_names=judges,
+        include_code_scorers=not args.judges_only,
+    )
+    if not ct.enabled():
+        print(results)
+    print(eval_pipeline.compare_eval_phases(version))
 
 
 def cmd_align_and_reeval(args: argparse.Namespace) -> None:
@@ -114,6 +134,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(Path("data/expert_feedback_seed.json")),
     )
     p_seed.set_defaults(func=cmd_seed_feedback)
+
+    p_rescore = sub.add_parser(
+        "rescore-eval",
+        help="Re-run judges on an existing baseline run (no agent rerun)",
+        parents=[parent],
+    )
+    p_rescore.add_argument(
+        "--run-id",
+        required=True,
+        help="Baseline eval MLflow run id (e.g. from baseline-eval-v1)",
+    )
+    p_rescore.add_argument("--dataset-version", default=config.DATASET_VERSION)
+    p_rescore.add_argument(
+        "--judges",
+        nargs="+",
+        default=None,
+        help="Judge subset (default: all three qualitative judges)",
+    )
+    p_rescore.add_argument(
+        "--judges-only",
+        action="store_true",
+        help="Skip RequiredMarkdownSections / RequiredToolsUsed code scorers",
+    )
+    p_rescore.set_defaults(func=cmd_rescore_eval)
 
     p_align = sub.add_parser(
         "align-and-reeval",

@@ -73,8 +73,105 @@ def _message_text(content: Any) -> str:
     return str(content)
 
 
+def _compact_tool_observation(name: str, text: str, *, max_chars: int = 6000) -> str:
+    """Pack tool results for Gemini judges without blind mid-JSON truncation.
+
+    Blind 1200-char cuts dropped later news articles (e.g. FedEx, earnings
+    figures), causing false Groundedness failures. Prefer structured compaction.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+
+    parsed: Any = None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        parsed = None
+
+    if isinstance(parsed, dict):
+        tool = name or ""
+        if "news" in tool or "news" in parsed:
+            articles = parsed.get("news") or []
+            compact_news = []
+            for article in articles:
+                if not isinstance(article, dict):
+                    continue
+                compact_news.append(
+                    {
+                        "title": article.get("title"),
+                        "summary": article.get("summary"),
+                        "publisher": article.get("publisher"),
+                    }
+                )
+            packed = json.dumps(
+                {"ticker": parsed.get("ticker"), "news": compact_news},
+                ensure_ascii=False,
+            )
+            return packed if len(packed) <= max_chars else packed[: max_chars - 1] + "…"
+
+        if "statement" in tool or "statement_type" in parsed or "rows" in parsed:
+            rows = parsed.get("rows") or {}
+            # Keep all row labels; trim each series to first 4 periods (already typical).
+            compact_rows: dict[str, Any] = {}
+            for key, values in rows.items():
+                if isinstance(values, list):
+                    compact_rows[str(key)] = values[:4]
+                else:
+                    compact_rows[str(key)] = values
+            packed = json.dumps(
+                {
+                    "ticker": parsed.get("ticker"),
+                    "statement_type": parsed.get("statement_type"),
+                    "columns": parsed.get("columns"),
+                    "rows": compact_rows,
+                },
+                ensure_ascii=False,
+            )
+            if len(packed) <= max_chars:
+                return packed
+            # Last resort: drop half the rows, keep keys that look material.
+            priority = (
+                "Revenue",
+                "Net Income",
+                "EBITDA",
+                "Free Cash Flow",
+                "Total Debt",
+                "Total Assets",
+                "Operating Cash Flow",
+                "Gross Profit",
+            )
+            slim: dict[str, Any] = {}
+            for key in compact_rows:
+                if any(p.lower() in key.lower() for p in priority):
+                    slim[key] = compact_rows[key]
+            if len(slim) < 8:
+                for key, values in list(compact_rows.items())[:20]:
+                    slim[key] = values
+            packed = json.dumps(
+                {
+                    "ticker": parsed.get("ticker"),
+                    "statement_type": parsed.get("statement_type"),
+                    "columns": parsed.get("columns"),
+                    "rows": slim,
+                    "note": "rows compacted for judge context",
+                },
+                ensure_ascii=False,
+            )
+            return packed if len(packed) <= max_chars else packed[: max_chars - 1] + "…"
+
+        if "price" in parsed or "get_stock_price" in tool:
+            packed = json.dumps(parsed, ensure_ascii=False)
+            return packed if len(packed) <= max_chars else packed[: max_chars - 1] + "…"
+
+        packed = json.dumps(parsed, ensure_ascii=False)
+        return packed if len(packed) <= max_chars else packed[: max_chars - 1] + "…"
+
+    return raw if len(raw) <= max_chars else raw[: max_chars - 1] + "…"
+
+
 def _tools_from_messages(messages: list[Any]) -> tuple[list[str], list[dict[str, str]]]:
-    """Extract tool call names and truncated tool observation text from LangChain messages."""
+    """Extract tool call names and compacted tool observation text from LangChain messages."""
     called: list[str] = []
     observations: list[dict[str, str]] = []
     for msg in messages:
@@ -86,14 +183,44 @@ def _tools_from_messages(messages: list[Any]) -> tuple[list[str], list[dict[str,
         name = getattr(msg, "name", None)
         if msg_type in ("tool", "ToolMessage") or name in config.REQUIRED_TOOLS_DEFAULT:
             text = _message_text(getattr(msg, "content", ""))
-            if len(text) > 1200:
-                text = text[:1200] + "…"
             observations.append(
                 {
                     "name": str(name or "tool"),
-                    "content": text,
+                    "content": _compact_tool_observation(str(name or "tool"), text),
                 }
             )
+    return called, observations
+
+
+def tools_from_trace_spans(spans: list[Any]) -> tuple[list[str], list[dict[str, str]]]:
+    """Rebuild compacted tool observations from MLflow span outputs (full tool text)."""
+    called: list[str] = []
+    observations: list[dict[str, str]] = []
+    for span in spans or []:
+        name = str(getattr(span, "name", "") or "")
+        if name not in config.REQUIRED_TOOLS_DEFAULT:
+            continue
+        called.append(name)
+        raw_out = getattr(span, "outputs", None)
+        text = ""
+        if isinstance(raw_out, dict):
+            content = raw_out.get("content")
+            if isinstance(content, list) and content:
+                first = content[0]
+                if isinstance(first, dict) and "text" in first:
+                    text = str(first.get("text") or "")
+                else:
+                    text = json.dumps(content, default=str)
+            else:
+                text = json.dumps(raw_out, default=str)
+        elif raw_out is not None:
+            text = _message_text(raw_out)
+        observations.append(
+            {
+                "name": name,
+                "content": _compact_tool_observation(name, text),
+            }
+        )
     return called, observations
 
 
