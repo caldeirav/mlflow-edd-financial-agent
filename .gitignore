@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# MLflow local tracking / traces
+mlflow.db
+mlflow.db-*
+.mlflow/
+
+# Local secrets / env overrides
+.env.*
+!.env.example
