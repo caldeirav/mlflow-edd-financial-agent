@@ -7,6 +7,8 @@ Demo of **MLflow Evaluation-Driven Development (EDD)** for a financial research 
 
 The vehicle is a LangGraph agent on local Qwen (LMStudio) with **MCP Yahoo Finance tools** (`mcp_server.py` over stdio). Gemini judges score each baseline; you review traces in the MLflow UI and add expert assessments where you disagree; **MemAlign** calibrates selected judges; a second eval keeps the baseline so you can compare before vs after.
 
+**Walkthrough video:** [EDD financial agent demo on YouTube](https://www.youtube.com/watch?v=5KEfejbdQAc)
+
 ## What the demo shows
 
 1. **MCP + OTel instrumentation** — FastMCP server (`mcp_server.py`) exposing market tools; LangGraph binds them via `langchain-mcp-adapters`; `mlflow.langchain.autolog()` records AGENT / TOOL / LLM spans (args and results) into `sqlite:///mlflow.db` for UI inspection.
