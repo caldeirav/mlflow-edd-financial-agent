@@ -1,27 +1,31 @@
 # mlflow-edd-financial-agent
 
-Demo of **MLflow Evaluation-Driven Development (EDD)** for a financial research assistant.
+Demo of **MLflow Evaluation-Driven Development (EDD)** for a financial research assistant — aimed at two problems that show up whenever **MCP** moves past toy demos in enterprise settings:
 
-The agent uses **LangGraph + local Qwen (LMStudio)** and **MCP Yahoo Finance tools** to write a Markdown analysis. Gemini **LLM judges** score quality; you review traces in the MLflow UI and add expert feedback where you disagree; **MemAlign** calibrates selected judges; a second eval keeps the baseline so you can compare before vs after.
+1. **Instrumenting tool calling** so you can see what was called, with which arguments, and what came back (OpenTelemetry-style spans via MLflow / `mlflow.langchain.autolog()`, against a real MCP server — not a mock tool list).
+2. **Evaluating and optimizing tool use with continuous learning from human feedback (CLHF)** — tool **selection / calling accuracy**, and **quality of tool-backed answers** (groundedness against live tool observations).
+
+The vehicle is a LangGraph agent on local Qwen (LMStudio) with **MCP Yahoo Finance tools** (`mcp_server.py` over stdio). Gemini judges score each baseline; you review traces in the MLflow UI and add expert assessments where you disagree; **MemAlign** calibrates selected judges; a second eval keeps the baseline so you can compare before vs after.
 
 ## What the demo shows
 
-1. **Agent** — ReAct loop over market-data tools; Markdown with required sections (Price context, News, Financial statements, Risks/limitations).
-2. **Baseline eval** — Versioned golden dataset, durable traces, uncalibrated judges + code scorers.
-3. **Human review** — Inspect runs/traces in MLflow UI; override assessments that do not match expert judgment.
-4. **Align + re-eval** — MemAlign on the judge(s) you annotated; new aligned run; baseline retained for comparison.
+1. **MCP + OTel instrumentation** — FastMCP server (`mcp_server.py`) exposing market tools; LangGraph binds them via `langchain-mcp-adapters`; `mlflow.langchain.autolog()` records AGENT / TOOL / LLM spans (args and results) into `sqlite:///mlflow.db` for UI inspection.
+2. **Agent behavior** — ReAct loop over those tools; Markdown with required sections (Price context, News, Financial statements, Risks/limitations).
+3. **Baseline eval of tool calling & answer quality** — Versioned golden dataset; code scorers plus uncalibrated Gemini judges for selection/efficiency and groundedness.
+4. **CLHF in the MLflow UI** — Inspect runs/traces; add HUMAN assessments where judges miss (or correctly catch) tool-use or grounding issues.
+5. **Align + re-eval** — MemAlign on the judge(s) you annotated; new aligned run; baseline retained for comparison.
 
 ### Scorers
 
 | Scorer | Type | What it checks |
 |--------|------|----------------|
 | `RequiredMarkdownSections` | Code | Required `##` headings present |
-| `RequiredToolsUsed` | Code | Required market tools called |
-| `ToolCallCorrectness` | Gemini judge | Right tools for the request |
-| `ToolCallEfficiency` | Gemini judge | Lean tool use (no thrash) |
-| `Groundedness` | Gemini judge | Claims supported by tool observations |
+| `RequiredToolsUsed` | Code | Required market tools called (selection coverage) |
+| `ToolCallCorrectness` | Gemini judge | Right tools for the request (selection accuracy) |
+| `ToolCallEfficiency` | Gemini judge | Lean tool use — no redundant thrash |
+| `Groundedness` | Gemini judge | Claims supported by tool observations (execution → answer quality) |
 
-Judges score **inputs / outputs / expectations** (not raw `{{ trace }}`). Tool evidence is compacted into outputs so qualitative judges can see the same facts as the UI.
+Together, the tool scorers target **calling accuracy**; Groundedness targets whether tool **execution results** were used faithfully in the report. Judges score **inputs / outputs / expectations** (not raw `{{ trace }}`). Tool evidence is compacted into outputs so qualitative judges can see the same facts as the UI.
 
 ## Prerequisites
 
@@ -34,7 +38,7 @@ Judges score **inputs / outputs / expectations** (not raw `{{ trace }}`). Tool e
 
 ## Demo walkthrough
 
-The loop is always the same: **run → evaluate → review in UI → align → compare**. Which judge you annotate, and which labels you choose, depends on what you care about in your run.
+The loop is always the same: **instrumented run → evaluate tool use & groundedness → CLHF in UI → align → compare**. Which judge you annotate depends on whether you are tuning **tool selection** or **answer quality from tool results** (or both).
 
 ### 1. Run a single analysis
 
@@ -42,7 +46,7 @@ The loop is always the same: **run → evaluate → review in UI → align → c
 uv run python main.py run-agent --ticker AAPL
 ```
 
-Confirms the agent, tools, and tracing path. Stdio shows tool calls and the Markdown report (use `--quiet` to suppress pretty traces).
+Starts the MCP stdio server, runs the ReAct agent, and logs OTel-style spans via autolog. Stdio shows tool calls and the Markdown report (use `--quiet` to suppress pretty traces). Implementation reference: `mcp_server.py` (tools) + `agent.py` (`MultiServerMCPClient`, `mlflow.langchain.autolog()`).
 
 ### 2. Run a baseline evaluation
 
@@ -50,9 +54,9 @@ Confirms the agent, tools, and tracing path. Stdio shows tool calls and the Mark
 uv run python main.py run-baseline-eval --dataset-version v1
 ```
 
-Produces an MLflow run (e.g. `baseline-eval-v1`) with one sample per golden case, code-scorer results, and LLM-judge assessments on each trace.
+Produces an MLflow run (e.g. `baseline-eval-v1`) with one sample per golden case: durable tool-call traces plus scores for selection/efficiency and groundedness.
 
-### 3. Review in the MLflow UI
+### 3. Review in the MLflow UI (CLHF)
 
 ```bash
 mlflow ui --backend-store-uri sqlite:///mlflow.db
@@ -62,10 +66,10 @@ Typical path:
 
 1. Open the experiment **edd-financial-assistant**.
 2. Open the **baseline** run.
-3. Go to **Traces** (sample-level results live on traces, not only run metrics).
-4. Open a trace → inspect agent I/O, tool spans, and existing assessments (value + rationale).
-5. Where you disagree with a judge (or want to reinforce a correct call), add a **HUMAN** assessment:
-   - Use the **same assessment name** as the judge (e.g. `Groundedness`, `ToolCallEfficiency`).
+3. Go to **Traces** (sample-level tool spans and assessments live on traces, not only run metrics).
+4. Open a trace → inspect AGENT / TOOL / LLM spans (MCP tool names, args, observations) and existing assessments (value + rationale).
+5. Where you disagree with a judge (or want to reinforce a correct call), add a **HUMAN** assessment — this is the CLHF signal:
+   - Use the **same assessment name** as the judge (e.g. `ToolCallCorrectness`, `ToolCallEfficiency`, `Groundedness`).
    - Set the label/value you want the aligned judge to learn.
    - Add a short rationale — MemAlign uses it.
 
@@ -151,20 +155,20 @@ When review exposes coverage gaps, bump `DATASET_VERSION` (e.g. `v2`), add cases
 
 | File | Role |
 |------|------|
-| `mcp_server.py` | FastMCP + yfinance tools |
-| `agent.py` | LangGraph ReAct + LMStudio + autolog + tool compaction |
+| `mcp_server.py` | FastMCP + yfinance tools (stdio MCP server — instrumentation example) |
+| `agent.py` | LangGraph ReAct + LMStudio + MCP client + `mlflow.langchain.autolog()` + tool compaction |
 | `golden_dataset.py` | Versioned MLflow eval dataset |
-| `eval_pipeline.py` | Code scorers, Gemini judges, MemAlign, rescore, evaluate |
+| `eval_pipeline.py` | Tool/groundedness scorers, Gemini judges, MemAlign (CLHF), rescore, evaluate |
 | `console_trace.py` | Pretty stdio for agent/judge steps |
 | `main.py` | Orchestration CLI |
 | `config.py` | URIs, model pins, version tags |
 
 ## Acceptance checklist
 
-1. Single-agent run returns required Markdown with tool-backed content  
-2. Baseline eval completes the golden set with durable traces  
-3. Uncalibrated scores exist for the qualitative judges you care about  
-4. After HUMAN overrides + align, an aligned eval is tagged distinctly on the same `dataset_version`  
+1. Single-agent run uses the MCP server and returns required Markdown with tool-backed content; traces show TOOL spans  
+2. Baseline eval completes the golden set with durable traces and tool/groundedness scores  
+3. Uncalibrated scores exist for the qualitative judges you care about (selection and/or groundedness)  
+4. After HUMAN overrides (CLHF) + align, an aligned eval is tagged distinctly on the same `dataset_version`  
 5. Full cycle fits one session; later rounds do not erase baseline  
 6. Aligned judge largely agrees with the HUMAN assessments you provided for that judge  
 
