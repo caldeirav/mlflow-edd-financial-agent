@@ -7,7 +7,17 @@ Demo of **MLflow Evaluation-Driven Development (EDD)** for a financial research 
 
 The vehicle is a LangGraph agent on local Qwen (LMStudio) with **MCP Yahoo Finance tools** (`mcp_server.py` over stdio). Gemini judges score each baseline; you review traces in the MLflow UI and add expert assessments where you disagree; **MemAlign** calibrates selected judges; a second eval keeps the baseline so you can compare before vs after.
 
-**Walkthrough video:** [EDD financial agent demo on YouTube](https://www.youtube.com/watch?v=5KEfejbdQAc)
+## Demo
+
+The recording walks through **one agent run**, then the MLflow evaluation of **two runs on the same baseline dataset**: uncalibrated Groundedness, then the same suite after human feedback and alignment.
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=5KEfejbdQAc">
+    <img src="https://img.youtube.com/vi/5KEfejbdQAc/hqdefault.jpg" alt="Watch the EDD financial agent demo on YouTube" width="720">
+  </a>
+  <br>
+  <a href="https://www.youtube.com/watch?v=5KEfejbdQAc"><strong>Watch on YouTube</strong></a> — Evaluation-Driven Development with MLflow: agent run, then before vs after Groundedness alignment
+</p>
 
 ## What the demo shows
 
